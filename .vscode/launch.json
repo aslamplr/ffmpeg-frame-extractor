@@ -19,7 +19,10 @@
           "kind": "bin"
         }
       },
-      "args": [],
+      "args": [
+        "/Users/aslam/Downloads/ffmpeg_samples/Schlossbergbahn.webm.480p.vp9.webm",
+        "/Users/aslam/Downloads/ffmpeg_samples/extracted_frames"
+      ],
       "cwd": "${workspaceFolder}"
     },
     {
@@ -38,7 +41,10 @@
           "kind": "bin"
         }
       },
-      "args": [],
+      "args": [
+        "/Users/aslam/Downloads/ffmpeg_samples/Schlossbergbahn.webm.480p.vp9.webm",
+        "/Users/aslam/Downloads/ffmpeg_samples/extracted_frames"
+      ],
       "cwd": "${workspaceFolder}"
     }
   ]

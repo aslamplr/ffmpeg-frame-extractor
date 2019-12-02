@@ -7,15 +7,15 @@ use std::sync::mpsc::channel;
 use std::thread;
 
 const IMAGE_LEN: usize = 112;
-const BUFFER_SIZE: usize = 1024 * 1024;
+const BUFFER_SIZE: usize = 2048;
 
 struct FileIterator {
     buf_reader: std::io::BufReader<File>,
-    buffer: Box<[u8]>,
+    buffer: Box<[u8; BUFFER_SIZE]>,
 }
 
 impl FileIterator {
-    fn new(file_name: &'static str) -> Result<Self, std::io::Error> {
+    fn new(file_name: &str) -> Result<Self, std::io::Error> {
         let file = File::open(file_name)?;
         let buf_reader = std::io::BufReader::new(file);
         let buffer = Box::from([0u8; BUFFER_SIZE]);
@@ -26,9 +26,9 @@ impl FileIterator {
 impl Iterator for FileIterator {
     type Item = Box<[u8]>;
     fn next(&mut self) -> Option<Self::Item> {
-        match self.buf_reader.read_exact(&mut self.buffer) {
-            Ok(()) => Some(self.buffer.clone()),
-            Err(_) => None,
+        match self.buf_reader.read(&mut *self.buffer) {
+            Ok(nread) if nread > 0 => Some(self.buffer.clone()),
+            _ => None,
         }
     }
 }
@@ -89,7 +89,6 @@ where
             for buf in file_reader {
                 stdin.write_all(&buf).expect("Unable to write to stdin");
             }
-            drop(stdin);
         })
     };
     while let Ok(buf) = rx.recv() {
@@ -108,14 +107,12 @@ where
 }
 
 fn frame_to_file(
+    extract_path: &str,
     frame: [u8; IMAGE_LEN * IMAGE_LEN * 3],
     number: usize,
 ) -> Result<(), std::io::Error> {
     image::save_buffer(
-        format!(
-            "/Users/aslam/Downloads/ffmpeg_samples/extracted_frames/frame_{:0>4}.png",
-            number
-        ),
+        format!("{}/frame_{:0>4}.png", extract_path, number),
         &frame,
         IMAGE_LEN as u32,
         IMAGE_LEN as u32,
@@ -126,15 +123,20 @@ fn frame_to_file(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let file_path = "/Users/aslam/Downloads/ffmpeg_samples/Schlossbergbahn.webm.480p.vp9.webm";
-    let file_iterator = FileIterator::new(file_path)?;
-    let count = std::rc::Rc::new(std::cell::RefCell::new(0usize));
-    ffmpeg_extract_frames(file_iterator, |x| {
-        let mut count = count.borrow_mut();
-        *count += 1;
-        frame_to_file(x, *count)?;
-        Ok(())
-    })?;
+    let args = std::env::args().collect::<Vec<_>>();
+    match args.as_slice() {
+        [_, file_path, extract_path] => {
+            let file_iterator = FileIterator::new(&file_path)?;
+            let count = std::rc::Rc::new(std::cell::RefCell::new(0usize));
+            ffmpeg_extract_frames(file_iterator, |x| {
+                let mut count = count.borrow_mut();
+                *count += 1;
+                frame_to_file(extract_path, x, *count)?;
+                Ok(())
+            })?;
+        }
+        _ => eprintln!("{} <file_path> <extract_path>", args[0]),
+    }
 
     Ok(())
 }
