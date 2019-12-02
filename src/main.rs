@@ -1,25 +1,40 @@
 extern crate image;
 
 use std::fs::File;
-use std::io::Read;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::channel;
 use std::thread;
 
 const IMAGE_LEN: usize = 112;
+const BUFFER_SIZE: usize = 1024 * 1024;
 
-fn read_from_file(file_name: &str) -> std::io::Result<Vec<u8>> {
-    let mut file = File::open(file_name)?;
+struct FileIterator {
+    buf_reader: std::io::BufReader<File>,
+    buffer: Box<[u8]>,
+}
 
-    let mut data = Vec::new();
-    file.read_to_end(&mut data)?;
+impl FileIterator {
+    fn new(file_name: &'static str) -> Result<Self, std::io::Error> {
+        let file = File::open(file_name)?;
+        let buf_reader = std::io::BufReader::new(file);
+        let buffer = Box::from([0u8; BUFFER_SIZE]);
+        Ok(FileIterator { buf_reader, buffer })
+    }
+}
 
-    Ok(data)
+impl Iterator for FileIterator {
+    type Item = Box<[u8]>;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.buf_reader.read_exact(&mut self.buffer) {
+            Ok(()) => Some(self.buffer.clone()),
+            Err(_) => None,
+        }
+    }
 }
 
 fn ffmpeg_extract_frames<F>(
-    file_content: Vec<u8>,
+    file_reader: FileIterator,
     callback: F,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
@@ -71,9 +86,9 @@ where
             std::io::Error::new(std::io::ErrorKind::Other, "[ffmpeg] stdin not captured!")
         })?;
         thread::spawn(move || {
-            stdin
-                .write_all(&file_content)
-                .expect("Unable to write to stdin");
+            for buf in file_reader {
+                stdin.write_all(&buf).expect("Unable to write to stdin");
+            }
             drop(stdin);
         })
     };
@@ -111,10 +126,10 @@ fn frame_to_file(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let file_content =
-        read_from_file("/Users/aslam/Downloads/ffmpeg_samples/Schlossbergbahn.webm.480p.vp9.webm")?;
+    let file_path = "/Users/aslam/Downloads/ffmpeg_samples/Schlossbergbahn.webm.480p.vp9.webm";
+    let file_iterator = FileIterator::new(file_path)?;
     let count = std::rc::Rc::new(std::cell::RefCell::new(0usize));
-    ffmpeg_extract_frames(file_content, move |x| {
+    ffmpeg_extract_frames(file_iterator, |x| {
         let mut count = count.borrow_mut();
         *count += 1;
         frame_to_file(x, *count)?;
