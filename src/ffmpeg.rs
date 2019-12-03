@@ -1,4 +1,4 @@
-use crate::{file::FileIterator, IMAGE_LEN};
+use crate::file::FileIterator;
 use std::error::Error;
 use std::io::{BufReader, Error as IoError, ErrorKind as IoErrorKind, Read, Write};
 use std::process::{Command, Stdio};
@@ -7,17 +7,17 @@ use std::thread;
 
 pub fn ffmpeg_extract_frames<F>(
   file_reader: FileIterator,
+  height: usize,
+  width: usize,
   callback: F,
 ) -> Result<(), Box<dyn Error>>
 where
-  F: Fn([u8; IMAGE_LEN * IMAGE_LEN * 3]) -> Result<(), Box<dyn Error>>,
+  F: Fn(Vec<u8>) -> Result<(), Box<dyn Error>>,
 {
   let ffmpeg = "ffmpeg";
   let args = &[
     "-hide_banner",
     "-nostats",
-    "-f",
-    "webm",
     "-i",
     "pipe:0",
     "-filter_complex",
@@ -29,13 +29,12 @@ where
     "-pix_fmt",
     "rgb24",
     "-s",
-    &format!("{0}x{0}", IMAGE_LEN),
+    &format!("{0}x{1}", width, height),
     "pipe:1",
   ];
   let child = Command::new(ffmpeg)
     .args(args)
     .stdin(Stdio::piped())
-    .stderr(Stdio::piped())
     .stdout(Stdio::piped())
     .spawn()?;
 
@@ -47,9 +46,9 @@ where
       .ok_or_else(|| IoError::new(IoErrorKind::Other, "[ffmpeg] stdout not captured!"))?;
     thread::spawn(move || {
       let mut reader = BufReader::new(stdout);
-      let mut buf = [0u8; IMAGE_LEN * IMAGE_LEN * 3];
+      let mut buf = vec![0u8; height * width * 3];
       while let Ok(()) = reader.read_exact(&mut buf) {
-        tx.send(buf).expect("Send buf over channel failed");
+        tx.send(buf.clone()).expect("Send buf over channel failed");
       }
     })
   };
