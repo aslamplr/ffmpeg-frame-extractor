@@ -1,9 +1,11 @@
 use crate::file::FileIterator;
-use std::error::Error;
-use std::io::{BufReader, Error as IoError, ErrorKind as IoErrorKind, Read, Write};
-use std::process::{Command, Stdio};
-use std::sync::mpsc::channel;
-use std::thread;
+use std::{
+  error::Error,
+  io::{BufReader, Error as IoError, ErrorKind as IoErrorKind, Read, Write},
+  process::{Command, Stdio},
+  sync::mpsc::channel,
+  thread,
+};
 
 pub fn ffmpeg_extract_frames<F>(
   file_reader: FileIterator,

@@ -1,16 +1,18 @@
 extern crate ffmpeg_read;
+
 use ffmpeg_read::{ffmpeg::ffmpeg_extract_frames, file::FileIterator, image::image_buffer_to_file};
+use std::{cell::RefCell, env::args, error::Error, rc::Rc};
 
 const READ_BUFFER_SIZE: usize = 2048;
 const IMAGE_HEIGHT: u32 = 120;
 const IMAGE_WIDTH: u32 = 160;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = std::env::args().collect::<Vec<_>>();
+fn main() -> Result<(), Box<dyn Error>> {
+    let args = args().collect::<Vec<_>>();
     match &args[..] {
         [_, file_path, extract_path, image_format] => {
             let file_iterator = FileIterator::new(file_path, READ_BUFFER_SIZE)?;
-            let count = std::rc::Rc::new(std::cell::RefCell::new(0usize));
+            let count = Rc::new(RefCell::new(0usize));
             ffmpeg_extract_frames(
                 file_iterator,
                 IMAGE_HEIGHT as usize,

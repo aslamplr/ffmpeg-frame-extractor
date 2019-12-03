@@ -1,15 +1,17 @@
-use std::fs::File;
-use std::io::Read;
+use std::{
+  fs::File,
+  io::{BufReader, Error, Read},
+};
 
 pub struct FileIterator {
-  buf_reader: std::io::BufReader<File>,
+  buf_reader: BufReader<File>,
   buffer: Vec<u8>,
 }
 
 impl FileIterator {
-  pub fn new(file_name: &str, buffer_size: usize) -> Result<Self, std::io::Error> {
+  pub fn new(file_name: &str, buffer_size: usize) -> Result<Self, Error> {
     let file = File::open(file_name)?;
-    let buf_reader = std::io::BufReader::new(file);
+    let buf_reader = BufReader::new(file);
     let buffer = vec![0u8; buffer_size];
     Ok(FileIterator { buf_reader, buffer })
   }
