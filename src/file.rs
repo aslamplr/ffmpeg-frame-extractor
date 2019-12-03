@@ -1,26 +1,26 @@
 use std::{
   fs::File,
-  io::{BufReader, Error, Read},
+  io::{Error, Read},
 };
 
 pub struct FileIterator {
-  buf_reader: BufReader<File>,
+  file: File,
   buffer: Vec<u8>,
 }
 
 impl FileIterator {
   pub fn new(file_name: &str, buffer_size: usize) -> Result<Self, Error> {
     let file = File::open(file_name)?;
-    let buf_reader = BufReader::new(file);
     let buffer = vec![0u8; buffer_size];
-    Ok(FileIterator { buf_reader, buffer })
+    Ok(FileIterator { file, buffer })
   }
 }
 
 impl Iterator for FileIterator {
   type Item = Vec<u8>;
+
   fn next(&mut self) -> Option<Self::Item> {
-    match self.buf_reader.read(&mut self.buffer) {
+    match self.file.read(&mut self.buffer) {
       Ok(nread) if nread > 0 => Some(self.buffer.clone()),
       _ => None,
     }

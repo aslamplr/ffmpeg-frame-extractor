@@ -1,7 +1,7 @@
 use crate::file::FileIterator;
 use std::{
   error::Error,
-  io::{BufReader, Error as IoError, ErrorKind as IoErrorKind, Read, Write},
+  io::{Error as IoError, ErrorKind as IoErrorKind, Read, Write},
   process::{Command, Stdio},
   sync::mpsc::channel,
   thread,
@@ -43,13 +43,12 @@ where
   let (tx, rx) = channel();
 
   let read_t_handle = {
-    let stdout = child
+    let mut stdout = child
       .stdout
       .ok_or_else(|| IoError::new(IoErrorKind::Other, "[ffmpeg] stdout not captured!"))?;
     thread::spawn(move || {
-      let mut reader = BufReader::new(stdout);
       let mut buf = vec![0u8; height * width * 3];
-      while let Ok(()) = reader.read_exact(&mut buf) {
+      while let Ok(()) = stdout.read_exact(&mut buf) {
         tx.send(buf.clone()).expect("Send buf over channel failed");
       }
     })
