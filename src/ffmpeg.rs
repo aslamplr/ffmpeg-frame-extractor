@@ -14,7 +14,7 @@ pub fn ffmpeg_extract_frames<F>(
   callback: F,
 ) -> Result<(), Box<dyn Error>>
 where
-  F: Fn(Vec<u8>) -> Result<(), Box<dyn Error>>,
+  F: Fn(&[u8]) -> Result<(), Box<dyn Error>>,
 {
   let ffmpeg = "ffmpeg";
   let args = &[
@@ -65,7 +65,7 @@ where
     })
   };
   while let Ok(buf) = rx.recv() {
-    callback(buf)?;
+    callback(&buf)?;
   }
 
   write_t_handle
