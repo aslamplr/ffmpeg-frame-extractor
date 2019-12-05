@@ -1,6 +1,6 @@
-use crate::file::FileIterator;
 use std::{
   error::Error,
+  fs::File,
   io::{BufReader, Error as IoError, ErrorKind as IoErrorKind, Read, Write},
   process::{Command, Stdio},
   sync::mpsc::channel,
@@ -8,7 +8,8 @@ use std::{
 };
 
 pub fn ffmpeg_extract_frames<F>(
-  file_reader: FileIterator,
+  file: File,
+  read_buffer_size: usize,
   height: usize,
   width: usize,
   callback: F,
@@ -59,8 +60,15 @@ where
       .stdin
       .ok_or_else(|| IoError::new(IoErrorKind::Other, "[ffmpeg] stdin not captured!"))?;
     thread::spawn(move || {
-      for buf in file_reader {
-        stdin.write_all(&buf).expect("Unable to write to stdin");
+      let mut reader = BufReader::new(file);
+      let mut buf = vec![0u8; read_buffer_size];
+      loop {
+        match reader.read(&mut buf) {
+          Ok(nread) if nread > 0 => {
+            stdin.write_all(&buf).expect("Unable to write to stdin");
+          }
+          _ => break,
+        }
       }
     })
   };
