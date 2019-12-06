@@ -1,22 +1,12 @@
 use std::{
   error::Error,
-  io::{BufReader, Error as IoError, ErrorKind as IoErrorKind, Read, Write},
+  io::{BufReader, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
   process::{Command, Stdio},
-  sync::mpsc::channel,
+  sync::mpsc::{channel, SendError},
   thread,
 };
 
-pub fn ffmpeg_extract_frames<F, R>(
-  file: R,
-  read_buffer_size: usize,
-  height: usize,
-  width: usize,
-  callback: F,
-) -> Result<(), Box<dyn Error>>
-where
-  F: Fn(&[u8]) -> Result<(), Box<dyn Error>>,
-  R: Read + Send + 'static,
-{
+pub fn spawn_ffmpeg_process(width: usize, height: usize) -> IoResult<(impl Read, impl Write)> {
   let ffmpeg = "ffmpeg";
   let args = &[
     "-hide_banner",
@@ -41,48 +31,81 @@ where
     .stdout(Stdio::piped())
     .spawn()?;
 
+  let stdout = child
+    .stdout
+    .ok_or_else(|| IoError::new(IoErrorKind::Other, "[ffmpeg] stdout not captured!"))?;
+
+  let stdin = child
+    .stdin
+    .ok_or_else(|| IoError::new(IoErrorKind::Other, "[ffmpeg] stdin not captured!"))?;
+
+  Ok((stdout, stdin))
+}
+
+pub fn ffmpeg_extract_frames<F, R>(
+  file: R,
+  read_buffer_size: usize,
+  height: usize,
+  width: usize,
+  callback: F,
+) -> Result<(), Box<dyn Error>>
+where
+  F: Fn(&[u8]) -> Result<(), Box<dyn Error>>,
+  R: Read,
+  R: Send + 'static,
+{
+  let (stdout, mut stdin) = spawn_ffmpeg_process(width, height)?;
+
   let (tx, rx) = channel();
 
   let read_t_handle = {
-    let stdout = child
-      .stdout
-      .ok_or_else(|| IoError::new(IoErrorKind::Other, "[ffmpeg] stdout not captured!"))?;
-    thread::spawn(move || {
+    thread::spawn(move || -> Result<(), SendError<Vec<u8>>> {
       let mut reader = BufReader::new(stdout);
       let mut buf = vec![0u8; height * width * 3];
       while let Ok(()) = reader.read_exact(&mut buf) {
-        tx.send(buf.clone()).expect("Send buf over channel failed");
+        tx.send(buf.clone())?;
       }
+      Ok(())
     })
   };
+
   let write_t_handle = {
-    let mut stdin = child
-      .stdin
-      .ok_or_else(|| IoError::new(IoErrorKind::Other, "[ffmpeg] stdin not captured!"))?;
-    thread::spawn(move || {
+    thread::spawn(move || -> IoResult<()> {
       let mut reader = BufReader::new(file);
       let mut buf = vec![0u8; read_buffer_size];
       loop {
         match reader.read(&mut buf) {
           Ok(nread) if nread > 0 => {
-            stdin.write_all(&buf).expect("Unable to write to stdin");
+            stdin.write_all(&buf)?;
           }
           _ => break,
         }
       }
+      Ok(())
     })
   };
   while let Ok(buf) = rx.recv() {
     callback(&buf)?;
   }
 
-  write_t_handle
-    .join()
-    .expect("Something went wrong while waiting for the input writer thread to join!");
-
-  read_t_handle
-    .join()
-    .expect("Something went wrong while waiting for the output reader thread to join!");
+  match write_t_handle.join() {
+    Ok(resp) => resp?,
+    Err(_) => {
+      return Err(Box::new(IoError::new(
+        IoErrorKind::Other,
+        "[writer] something went wrong while waiting for the output reader thread to join!",
+      )));
+    }
+  }
+  match read_t_handle.join() {
+    Ok(resp) => resp?,
+    Err(_) => {
+      return Err(Box::new(IoError::new(
+        IoErrorKind::Other,
+        "[reader] something went wrong while waiting for the output reader thread to join!",
+      )));
+    }
+  }
 
   Ok(())
 }
