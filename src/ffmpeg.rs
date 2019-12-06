@@ -1,14 +1,13 @@
 use std::{
   error::Error,
-  fs::File,
   io::{BufReader, Error as IoError, ErrorKind as IoErrorKind, Read, Write},
   process::{Command, Stdio},
   sync::mpsc::channel,
   thread,
 };
 
-pub fn ffmpeg_extract_frames<F>(
-  file: File,
+pub fn ffmpeg_extract_frames<F, R>(
+  file: R,
   read_buffer_size: usize,
   height: usize,
   width: usize,
@@ -16,6 +15,7 @@ pub fn ffmpeg_extract_frames<F>(
 ) -> Result<(), Box<dyn Error>>
 where
   F: Fn(&[u8]) -> Result<(), Box<dyn Error>>,
+  R: Read + Send + 'static,
 {
   let ffmpeg = "ffmpeg";
   let args = &[
