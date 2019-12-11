@@ -1,9 +1,13 @@
-use crate::utils::spawn_thread;
+use async_std::{
+  io::{BufReader as BufReaderAsync, Read as ReadAsync},
+  prelude::*,
+  sync::Arc,
+  task,
+};
 use std::{
   error::Error,
   io::{BufReader, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
   process::{Command, Stdio},
-  sync::mpsc::{channel, SendError},
 };
 
 pub fn spawn_ffmpeg_process(width: usize, height: usize) -> IoResult<(impl Read, impl Write)> {
@@ -42,7 +46,7 @@ pub fn spawn_ffmpeg_process(width: usize, height: usize) -> IoResult<(impl Read,
   Ok((stdout, stdin))
 }
 
-pub fn ffmpeg_extract_frames<F, R>(
+pub async fn ffmpeg_extract_frames<F, R>(
   file: R,
   read_buffer_size: usize,
   height: usize,
@@ -50,42 +54,38 @@ pub fn ffmpeg_extract_frames<F, R>(
   callback: F,
 ) -> Result<(), Box<dyn Error>>
 where
-  F: Fn(&[u8]) -> Result<(), Box<dyn Error>>,
-  R: Read + Send + 'static,
+  F: Fn(&[u8]) -> Result<(), Box<dyn Error>> + Send + Sync + 'static,
+  R: ReadAsync + Unpin + Send + 'static,
 {
-  let (stdout, mut stdin) = spawn_ffmpeg_process(width, height)?;
+  let callback = Arc::new(callback);
+  let (stdout, mut stdin) = spawn_ffmpeg_process(width, height)
+    .expect("Something went wrong while spawning ffmpeg process!");
 
-  let (tx, rx) = channel();
-
-  let read_t_join = spawn_thread(move || -> Result<(), SendError<Vec<u8>>> {
+  let read_task = task::spawn(async move {
     let mut reader = BufReader::new(stdout);
     let mut buf = vec![0u8; height * width * 3];
     while let Ok(()) = reader.read_exact(&mut buf) {
-      tx.send(buf.clone())?;
+      callback(&buf).expect("An error occured while calling callback!");
     }
-    Ok(())
   });
 
-  let write_t_join = spawn_thread(move || -> IoResult<()> {
-    let mut reader = BufReader::new(file);
+  let write_task = task::spawn(async move {
+    let mut reader = BufReaderAsync::new(file);
     let mut buf = vec![0u8; read_buffer_size];
     loop {
-      match reader.read(&mut buf) {
+      let read = reader.read(&mut buf);
+      match read.await {
         Ok(nread) if nread > 0 => {
-          stdin.write_all(&buf)?;
+          stdin
+            .write_all(&buf)
+            .expect("Unable to write to pipe stdin");
         }
         _ => break,
       }
     }
-    Ok(())
   });
-  while let Ok(buf) = rx.recv() {
-    callback(&buf)?;
-  }
 
-  write_t_join(
-    "[writer] something went wrong while waiting for the output reader thread to join!",
-  )?;
-  read_t_join("[reader] something went wrong while waiting for the output reader thread to join!")?;
+  write_task.await;
+  read_task.await;
   Ok(())
 }
